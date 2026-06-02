@@ -4,6 +4,15 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
+// CORS — izinkan semua origin
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-secret');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
@@ -12,44 +21,32 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'kallstore2025';
 
-// Store pending orders in memory
-const pendingOrders = new Map();
-
 client.once('ready', () => {
   console.log(`✅ KallStore Bot ready! Logged in as ${client.user.tag}`);
 });
 
-// Handle button interactions (APPROVE / REJECT)
+// Handle button APPROVE / REJECT
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
-  const [action, orderId] = interaction.customId.split('_');
+  const parts = interaction.customId.split('_');
+  const action = parts[0];
+  const orderId = parts[1];
   if (!orderId) return;
 
   if (action === 'approve') {
-    // Update embed jadi approved
     const approvedEmbed = new EmbedBuilder()
       .setTitle('✅ PESANAN APPROVED!')
       .setColor(0x00e676)
       .addFields(
         { name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true },
-        { name: '📦 Status', value: 'Link download sudah aktif untuk pembeli!', inline: false },
         { name: '👤 Di-approve oleh', value: interaction.user.username, inline: true },
+        { name: '📦 Status', value: 'Link download sudah aktif untuk pembeli!', inline: false },
       )
       .setFooter({ text: 'KallStore · Brutal Legends' })
       .setTimestamp();
 
     await interaction.update({ embeds: [approvedEmbed], components: [] });
-
-    // Kirim notif ke website via API endpoint
-    try {
-      const siteUrl = process.env.SITE_URL || 'https://kallstoreee.netlify.app';
-      await fetch(siteUrl + '/api/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-secret': WEBHOOK_SECRET },
-        body: JSON.stringify({ orderId, action: 'approve' })
-      });
-    } catch(e) { console.log('Site notify error:', e.message); }
 
   } else if (action === 'reject') {
     const rejectedEmbed = new EmbedBuilder()
@@ -57,8 +54,8 @@ client.on('interactionCreate', async interaction => {
       .setColor(0xe74c3c)
       .addFields(
         { name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true },
-        { name: '📦 Status', value: 'Pesanan ditolak oleh admin.', inline: false },
         { name: '👤 Di-reject oleh', value: interaction.user.username, inline: true },
+        { name: '📦 Status', value: 'Pesanan telah ditolak.', inline: false },
       )
       .setFooter({ text: 'KallStore · Brutal Legends' })
       .setTimestamp();
@@ -67,7 +64,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// API endpoint: terima pesanan dari website
+// Endpoint: terima pesanan dari website
 app.post('/order', async (req, res) => {
   const secret = req.headers['x-secret'];
   if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
@@ -101,15 +98,7 @@ app.post('/order', async (req, res) => {
 
     await channel.send({ embeds: [embed] });
 
-    // Kirim foto bukti TF kalau ada
-    if (order.proofUrl) {
-      await channel.send({
-        content: '📸 **Bukti Transfer** — Order `#' + order.id + '` | ' + pack + ' | ' + price,
-        files: [order.proofUrl]
-      });
-    }
-
-    // Kirim tombol approve/reject
+    // Tombol approve/reject
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('approve_' + order.id)
@@ -129,25 +118,22 @@ app.post('/order', async (req, res) => {
 
     await channel.send({ embeds: [actionEmbed], components: [row] });
 
-    pendingOrders.set(order.id, order);
     res.json({ success: true });
-
   } catch (e) {
-    console.error('Error sending to Discord:', e);
+    console.error('Error:', e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// API endpoint: approve order dari website admin panel
+// Endpoint: approve dari admin panel website
 app.post('/approve-from-site', async (req, res) => {
   const secret = req.headers['x-secret'];
   if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   const { orderId } = req.body;
-
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
     const embed = new EmbedBuilder()
-      .setTitle('✅ PESANAN APPROVED dari Admin Panel!')
+      .setTitle('✅ APPROVED dari Admin Panel!')
       .setColor(0x00e676)
       .addFields({ name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true })
       .setTimestamp();
@@ -161,9 +147,7 @@ app.post('/approve-from-site', async (req, res) => {
 // Health check
 app.get('/', (req, res) => res.json({ status: 'KallStore Bot running!' }));
 
-// Start express server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
-// Login bot
 client.login(TOKEN);
