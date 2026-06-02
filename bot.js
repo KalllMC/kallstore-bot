@@ -4,7 +4,7 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// CORS — izinkan semua origin
+// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -20,48 +20,10 @@ const client = new Client({
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'kallstore2025';
+const SITE_URL = process.env.SITE_URL || 'https://kalllstore.netlify.app';
 
 client.once('ready', () => {
   console.log(`✅ KallStore Bot ready! Logged in as ${client.user.tag}`);
-});
-
-// Handle button APPROVE / REJECT
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-
-  const parts = interaction.customId.split('_');
-  const action = parts[0];
-  const orderId = parts[1];
-  if (!orderId) return;
-
-  if (action === 'approve') {
-    const approvedEmbed = new EmbedBuilder()
-      .setTitle('✅ PESANAN APPROVED!')
-      .setColor(0x00e676)
-      .addFields(
-        { name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true },
-        { name: '👤 Di-approve oleh', value: interaction.user.username, inline: true },
-        { name: '📦 Status', value: 'Link download sudah aktif untuk pembeli!', inline: false },
-      )
-      .setFooter({ text: 'KallStore · Brutal Legends' })
-      .setTimestamp();
-
-    await interaction.update({ embeds: [approvedEmbed], components: [] });
-
-  } else if (action === 'reject') {
-    const rejectedEmbed = new EmbedBuilder()
-      .setTitle('❌ PESANAN DITOLAK!')
-      .setColor(0xe74c3c)
-      .addFields(
-        { name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true },
-        { name: '👤 Di-reject oleh', value: interaction.user.username, inline: true },
-        { name: '📦 Status', value: 'Pesanan telah ditolak.', inline: false },
-      )
-      .setFooter({ text: 'KallStore · Brutal Legends' })
-      .setTimestamp();
-
-    await interaction.update({ embeds: [rejectedEmbed], components: [] });
-  }
 });
 
 // Endpoint: terima pesanan dari website
@@ -96,26 +58,26 @@ app.post('/order', async (req, res) => {
       .setFooter({ text: 'KallStore · Brutal Legends' })
       .setTimestamp();
 
-    await channel.send({ embeds: [embed] });
-
-    // Tombol approve/reject
+    // Tombol — link langsung ke admin panel
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId('approve_' + order.id)
-        .setLabel('✅ APPROVE')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId('reject_' + order.id)
-        .setLabel('❌ REJECT')
-        .setStyle(ButtonStyle.Danger)
+        .setLabel('⚙️ Buka Admin Panel')
+        .setStyle(ButtonStyle.Link)
+        .setURL(SITE_URL),
     );
 
     const actionEmbed = new EmbedBuilder()
-      .setTitle('⚡ Action untuk Order #' + order.id)
+      .setTitle('⚡ Ada pesanan baru dari ' + name)
       .setColor(0x5865f2)
-      .setDescription('**' + pack + '** — ' + price + '\nPembeli: ' + name)
-      .setFooter({ text: 'Klik tombol untuk approve atau reject' });
+      .setDescription(
+        '**' + pack + '** — ' + price + '\n\n' +
+        '> Klik tombol di bawah untuk buka Admin Panel\n' +
+        '> Login → cari Order `#' + order.id + '` → klik **✓ APPROVE**\n\n' +
+        '📸 Bukti TF bisa dilihat di Admin Panel website'
+      )
+      .setFooter({ text: 'Login: adminkal / kalstore123' });
 
+    await channel.send({ embeds: [embed] });
     await channel.send({ embeds: [actionEmbed], components: [row] });
 
     res.json({ success: true });
@@ -125,7 +87,7 @@ app.post('/order', async (req, res) => {
   }
 });
 
-// Endpoint: approve dari admin panel website
+// Endpoint: notif approve dari website
 app.post('/approve-from-site', async (req, res) => {
   const secret = req.headers['x-secret'];
   if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
@@ -133,9 +95,9 @@ app.post('/approve-from-site', async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
     const embed = new EmbedBuilder()
-      .setTitle('✅ APPROVED dari Admin Panel!')
+      .setTitle('✅ PESANAN APPROVED!')
       .setColor(0x00e676)
-      .addFields({ name: '🆔 Order ID', value: '`#' + orderId + '`', inline: true })
+      .setDescription('Order `#' + orderId + '` telah di-approve dari Admin Panel.\nLink download sudah aktif untuk pembeli!')
       .setTimestamp();
     await channel.send({ embeds: [embed] });
     res.json({ success: true });
