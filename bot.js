@@ -4,7 +4,6 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -26,7 +25,6 @@ client.once('ready', () => {
   console.log(`✅ KallStore Bot ready! Logged in as ${client.user.tag}`);
 });
 
-// Endpoint: terima pesanan dari website
 app.post('/order', async (req, res) => {
   const secret = req.headers['x-secret'];
   if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
@@ -41,43 +39,47 @@ app.post('/order', async (req, res) => {
     const name = order.buyer?.name || '-';
     const disc = order.buyer?.discord || '-';
     const wa = order.buyer?.wa || '-';
+    const adminUrl = SITE_URL + '?admin=1';
 
-    // Embed detail pesanan
-    const embed = new EmbedBuilder()
-      .setTitle('🔔 PESANAN BARU MASUK!')
+    // Embed utama — detail pesanan
+    const mainEmbed = new EmbedBuilder()
+      .setTitle('🔔  PESANAN BARU MASUK!')
       .setColor(0xc9a227)
+      .setDescription('━━━━━━━━━━━━━━━━━━━━━━')
       .addFields(
-        { name: '🛒 Pack', value: '**' + pack + '**', inline: true },
-        { name: '💰 Harga', value: '**' + price + '**', inline: true },
+        { name: '🛒  Pack', value: '```' + pack + '```', inline: true },
+        { name: '💰  Harga', value: '```' + price + '```', inline: true },
         { name: '\u200b', value: '\u200b', inline: false },
-        { name: '👤 Nama', value: name, inline: true },
-        { name: '🎮 Discord', value: disc, inline: true },
-        { name: '📱 WhatsApp', value: wa || '-', inline: true },
-        { name: '🆔 Order ID', value: '`#' + order.id + '`', inline: false },
+        { name: '👤  Nama Pembeli', value: name, inline: true },
+        { name: '🎮  Discord', value: disc, inline: true },
+        { name: '📱  WhatsApp', value: wa || '-', inline: true },
+        { name: '🆔  Order ID', value: '```#' + order.id + '```', inline: false },
+        { name: '📸  Bukti Transfer', value: 'Dikirim di bawah pesan ini', inline: false },
       )
-      .setFooter({ text: 'KallStore · Brutal Legends' })
+      .setFooter({ text: 'KallStore · Brutal Legends  •  ' + new Date().toLocaleString('id-ID') })
       .setTimestamp();
 
-    // Tombol — link langsung ke admin panel
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel('⚙️ Buka Admin Panel')
-        .setStyle(ButtonStyle.Link)
-        .setURL(SITE_URL),
-    );
-
+    // Embed action — tombol approve
     const actionEmbed = new EmbedBuilder()
-      .setTitle('⚡ Ada pesanan baru dari ' + name)
+      .setTitle('⚡  Approve Pesanan Ini?')
       .setColor(0x5865f2)
       .setDescription(
-        '**' + pack + '** — ' + price + '\n\n' +
-        '> Klik tombol di bawah untuk buka Admin Panel\n' +
-        '> Login → cari Order `#' + order.id + '` → klik **✓ APPROVE**\n\n' +
-        '📸 Bukti TF bisa dilihat di Admin Panel website'
+        '> **' + pack + '**  —  ' + price + '\n' +
+        '> Pembeli: **' + name + '**\n' +
+        '> Order: **#' + order.id + '**\n\n' +
+        '🔐 Klik tombol hijau di bawah untuk langsung masuk ke Admin Panel'
       )
-      .setFooter({ text: 'Login: adminkal / kalstore123' });
+      .setFooter({ text: 'Auto-login · Tidak perlu ketik username & password' });
 
-    await channel.send({ embeds: [embed] });
+    // Tombol link ke admin panel (auto login)
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('✅  BUKA ADMIN PANEL & APPROVE')
+        .setStyle(ButtonStyle.Link)
+        .setURL(adminUrl),
+    );
+
+    await channel.send({ embeds: [mainEmbed] });
     await channel.send({ embeds: [actionEmbed], components: [row] });
 
     res.json({ success: true });
@@ -87,7 +89,6 @@ app.post('/order', async (req, res) => {
   }
 });
 
-// Endpoint: notif approve dari website
 app.post('/approve-from-site', async (req, res) => {
   const secret = req.headers['x-secret'];
   if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
@@ -95,9 +96,10 @@ app.post('/approve-from-site', async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
     const embed = new EmbedBuilder()
-      .setTitle('✅ PESANAN APPROVED!')
+      .setTitle('✅  PESANAN APPROVED!')
       .setColor(0x00e676)
-      .setDescription('Order `#' + orderId + '` telah di-approve dari Admin Panel.\nLink download sudah aktif untuk pembeli!')
+      .setDescription('Order `#' + orderId + '` telah di-approve.\nLink download sudah aktif untuk pembeli! 🎉')
+      .setFooter({ text: 'KallStore · Brutal Legends' })
       .setTimestamp();
     await channel.send({ embeds: [embed] });
     res.json({ success: true });
@@ -106,7 +108,6 @@ app.post('/approve-from-site', async (req, res) => {
   }
 });
 
-// Health check
 app.get('/', (req, res) => res.json({ status: 'KallStore Bot running!' }));
 
 const PORT = process.env.PORT || 3000;
