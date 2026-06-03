@@ -1,9 +1,12 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({limit:'10mb'}));
 
+// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -21,93 +24,76 @@ const CHANNEL_ID = process.env.CHANNEL_ID;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'kallstore2025';
 const SITE_URL = process.env.SITE_URL || 'https://kalllstore.netlify.app';
 
+// ===== FILE STORAGE =====
+const DB_FILE = path.join('/tmp', 'orders.json');
+
+function readOrders() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    }
+  } catch(e) {}
+  return [];
+}
+
+function writeOrders(orders) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(orders), 'utf8');
+  } catch(e) {
+    console.error('Write error:', e);
+  }
+}
+
+// ===== AUTH MIDDLEWARE =====
+function auth(req, res, next) {
+  if (req.headers['x-secret'] !== WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
 client.once('ready', () => {
   console.log(`✅ KallStore Bot ready! Logged in as ${client.user.tag}`);
 });
 
-app.post('/order', async (req, res) => {
-  const secret = req.headers['x-secret'];
-  if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+// ===== GET ALL ORDERS =====
+app.get('/orders', auth, (req, res) => {
+  const orders = readOrders();
+  res.json(orders);
+});
 
+// ===== SAVE NEW ORDER =====
+app.post('/save-order', auth, (req, res) => {
   const order = req.body;
   if (!order || !order.id) return res.status(400).json({ error: 'Invalid order' });
 
-  try {
-    const channel = await client.channels.fetch(CHANNEL_ID);
-    const pack = order.product?.name || '-';
-    const price = 'Rp ' + (order.product?.price || 0).toLocaleString('id-ID');
-    const name = order.buyer?.name || '-';
-    const disc = order.buyer?.discord || '-';
-    const wa = order.buyer?.wa || '-';
-    const adminUrl = SITE_URL + '?admin=1';
-
-    // Embed utama — detail pesanan
-    const mainEmbed = new EmbedBuilder()
-      .setTitle('🔔  PESANAN BARU MASUK!')
-      .setColor(0xc9a227)
-      .setDescription('━━━━━━━━━━━━━━━━━━━━━━')
-      .addFields(
-        { name: '🛒  Pack', value: '```' + pack + '```', inline: true },
-        { name: '💰  Harga', value: '```' + price + '```', inline: true },
-        { name: '\u200b', value: '\u200b', inline: false },
-        { name: '👤  Nama Pembeli', value: name, inline: true },
-        { name: '🎮  Discord', value: disc, inline: true },
-        { name: '📱  WhatsApp', value: wa || '-', inline: true },
-        { name: '🆔  Order ID', value: '```#' + order.id + '```', inline: false },
-        { name: '📸  Bukti Transfer', value: 'Dikirim di bawah pesan ini', inline: false },
-      )
-      .setFooter({ text: 'KallStore · Brutal Legends  •  ' + new Date().toLocaleString('id-ID') })
-      .setTimestamp();
-
-    // Embed action — tombol approve
-    const actionEmbed = new EmbedBuilder()
-      .setTitle('⚡  Approve Pesanan Ini?')
-      .setColor(0x5865f2)
-      .setDescription(
-        '> **' + pack + '**  —  ' + price + '\n' +
-        '> Pembeli: **' + name + '**\n' +
-        '> Order: **#' + order.id + '**\n\n' +
-        '🔐 Klik tombol hijau di bawah untuk langsung masuk ke Admin Panel'
-      )
-      .setFooter({ text: 'Auto-login · Tidak perlu ketik username & password' });
-
-    // Tombol link ke admin panel (auto login)
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel('✅  BUKA ADMIN PANEL & APPROVE')
-        .setStyle(ButtonStyle.Link)
-        .setURL(adminUrl),
-    );
-
-    await channel.send({ embeds: [mainEmbed] });
-    await channel.send({ embeds: [actionEmbed], components: [row] });
-
-    res.json({ success: true });
-  } catch (e) {
-    console.error('Error:', e);
-    res.status(500).json({ error: e.message });
+  const orders = readOrders();
+  // Cek duplikat
+  if (orders.find(o => o.id === order.id)) {
+    return res.json({ success: true, message: 'Already exists' });
   }
+  orders.unshift(order);
+  writeOrders(orders);
+  console.log(`📦 New order saved: #${order.id} - ${order.product?.name}`);
+  res.json({ success: true });
 });
 
-app.post('/approve-from-site', async (req, res) => {
-  const secret = req.headers['x-secret'];
-  if (secret !== WEBHOOK_SECRET) return res.status(401).json({ error: 'Unauthorized' });
-  const { orderId } = req.body;
-  try {
-    const channel = await client.channels.fetch(CHANNEL_ID);
-    const embed = new EmbedBuilder()
-      .setTitle('✅  PESANAN APPROVED!')
-      .setColor(0x00e676)
-      .setDescription('Order `#' + orderId + '` telah di-approve.\nLink download sudah aktif untuk pembeli! 🎉')
-      .setFooter({ text: 'KallStore · Brutal Legends' })
-      .setTimestamp();
-    await channel.send({ embeds: [embed] });
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+// ===== UPDATE ORDER (approve/reject) =====
+app.post('/update-order', auth, (req, res) => {
+  const { id, data } = req.body;
+  if (!id || !data) return res.status(400).json({ error: 'Invalid request' });
+
+  const orders = readOrders();
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Order not found' });
+
+  orders[idx] = { ...orders[idx], ...data };
+  writeOrders(orders);
+  console.log(`✏️ Order updated: #${id} -> ${JSON.stringify(data)}`);
+  res.json({ success: true });
 });
 
+// ===== HEALTH CHECK =====
 app.get('/', (req, res) => res.json({ status: 'KallStore Bot running!' }));
 
 const PORT = process.env.PORT || 3000;
